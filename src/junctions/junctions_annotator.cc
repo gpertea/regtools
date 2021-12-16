@@ -123,19 +123,23 @@ bool JunctionsAnnotator::load_gtf() {
     return true;
 }
 
-//Find overlap between transcript and junction on the negative strand,
+//Find overlap between transcript and junction on the positive strand,
 //function returns true if either the acceptor or the donor is known
 bool JunctionsAnnotator::overlap_ps(const vector<BED>& exons,
                                           AnnotatedJunction & junction) {
     //skip single exon genes
     if(skip_single_exon_genes_ && exons.size() == 1) return false;
-    bool junction_start = false;
+    bool junction_start = false; //an exon was found to end on or after junction start (donor)
+    bool jstart_ovl = false; //if the junction start (donor) overlaps an exon
+    bool junction_end=false;
+    bool jend_ovl    =false; // if the junction end overlaps an exon
     bool known_junction = false;
     //check if transcript overlaps with junction
     if(exons[0].start > junction.end ||
             exons[exons.size() - 1].end < junction.start)
         return known_junction;
     for(std::size_t i = 0; i < exons.size(); i++) {
+      //--- for each exon
         if(exons[i].start > junction.end) {
             //No need to look any further
             //the rest of the exons are outside the junction
@@ -149,21 +153,22 @@ bool JunctionsAnnotator::overlap_ps(const vector<BED>& exons,
             junction.known_junction = true;
             known_junction = true;
         }
-        else {
+        else { // not an exon match
             // YY NOTE: if we have not yet reached the junction on this transcript,
             if(!junction_start) {
                 // then check if we have with this exon (i.e. the 
                 // exon end is past or at the junction start)
                 if(exons[i].end >= junction.start) {
-                    junction_start = true;
+                    junction_start = true; // junction start was passed by this exon end
+                    if (exons[i].start<=junction.start) jstart_ovl=true;
                 }
             }
             if(junction_start) {
+                bool exon_contained= ( exons[i].start > junction.start &&
+                                   exons[i].end < junction.end  );
                 // YY NOTE: if the exon lies completely within the junction,
                 //              count it as skipped
-                if(exons[i].start > junction.start &&
-                        exons[i].end < junction.end &&
-                        i > 0 && i < (exons.size()-1)) {
+                if (jstart_ovl && exon_contained && i > 0 && i < (exons.size()-1)) { 
                     string exon_coords = common::num_to_str(exons[i].start) + "-" + common::num_to_str(exons[i].end);
                     junction.exons_skipped.insert(exon_coords);
                 }
@@ -174,17 +179,13 @@ bool JunctionsAnnotator::overlap_ps(const vector<BED>& exons,
                         //              if the "donor" and "acceptor" are already
                         //              contiguous in the DNA it would get counted
                         //              as "skipped" 
-                if(exons[i].end > junction.start &&
-                        exons[i].end < junction.end && 
-                        i < (exons.size()-1)) {
+                if(jstart_ovl && exon_contained &&  i < (exons.size()-1)) {
                     junction.donors_skipped.insert(exons[i].end);
                 }
                 // YY NOTE: if the exon starts before the junction ends
                 //              (and junction_start == true), then
                 //              count the acceptor as skipped
-                if(exons[i].start < junction.end &&
-                        exons[i].start > junction.start &&
-                        i > 0) {
+                if(jstart_ovl && exon_contained && i > 0) {
                     junction.acceptors_skipped.insert(exons[i].start);
                 }
                 if(exons[i].end == junction.start) {
@@ -193,11 +194,17 @@ bool JunctionsAnnotator::overlap_ps(const vector<BED>& exons,
                 if(exons[i].start == junction.end) {
                     junction.known_acceptor = true;
                 }
+                if (!junction_end) {
+                  if (exons[i].end>=junction.end) {
+                    junction_end=true;
+                    if (exons[i].start<=junction.end) jend_ovl=true;
+                  }
+                }
             }
         }
     }
     annotate_anchor(junction);
-    return (junction.anchor != "N");
+    return (jstart_ovl || jend_ovl);
 }
 
 //YY NOTES
@@ -322,8 +329,11 @@ void JunctionsAnnotator::check_for_overlap(string transcript_id, AnnotatedJuncti
     if(junction.strand != transcript_strand)
         return;
     //Remember exons are sorted from exon1 to last exon
+    bool dbg_j=(junction.start==145564936 && junction.end==146057694);
+
     if(junction.strand == "+") {
         if(overlap_ps(exons, junction)) {
+            if (dbg_j) fprintf(stderr, "transcript %s overlaps!\n", transcript_id.c_str());
             junction.transcripts_overlap.insert(transcript_id);
             junction.genes_overlap.insert(
                     gtf_.get_gene_from_transcript(transcript_id));
