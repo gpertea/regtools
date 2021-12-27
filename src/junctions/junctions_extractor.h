@@ -92,6 +92,12 @@ struct Junction : BED {
             "\t" << start - thick_start << "," << thick_end - end <<
             "\t" << "0," << end - thick_start << endl;
     }
+    //print junction in counts tab format
+    void printCount(ostream& out) const {
+        out << chrom << "\t" << start+1 << "\t" << end << "\t" <<
+                strand << "\t" << read_count << endl;
+    }
+
 };
 
 //Compare two junctions
@@ -151,6 +157,8 @@ class JunctionsExtractor {
         bool junctions_sorted_;
         //File to write output to - optional, write to STDOUT by default
         string output_file_;
+        //File to write counts format 
+        string output_counts_;
         //Region to identify junctions, in "chr:start-end" format
         string region_;
         //strandness of data; 0 = unstranded, 1 = RF, 2 = FR
@@ -159,21 +167,18 @@ class JunctionsExtractor {
         string strand_tag_;
     public:
         //Default constructor
-        JunctionsExtractor() {
+        JunctionsExtractor():bam_("NA"), output_file_("NA"), output_counts_(), region_("."),
+                  strand_tag_("XS")  {
             min_anchor_length_ = 8;
             min_intron_length_ = 70;
             max_intron_length_ = 500000;
             junctions_sorted_ = false;
             strandness_ = -1;
-            strand_tag_ = "XS";
-            bam_ = "NA";
-            output_file_ = "NA";
-            region_ = ".";
         }
         JunctionsExtractor(string bam1, string region1, int strandness1, string strand_tag1, uint32_t min_anchor_length1, uint32_t min_intron_length1, uint32_t max_intron_length1) : 
-            bam_(bam1), region_(region1), strandness_(strandness1), strand_tag_(strand_tag1), min_anchor_length_(min_anchor_length1), min_intron_length_(min_anchor_length1), max_intron_length_(max_intron_length1) {
+              bam_(bam1), region_(region1), strandness_(strandness1), strand_tag_(strand_tag1), min_anchor_length_(min_anchor_length1), 
+              min_intron_length_(min_anchor_length1), max_intron_length_(max_intron_length1), output_file_("NA"), output_counts_() {
             junctions_sorted_ = false;
-            output_file_ = "NA";
         }
         //Name the junction based on the number of junctions
         // in the map.

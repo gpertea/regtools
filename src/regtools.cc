@@ -42,6 +42,7 @@ void version() {
 
 //Regtools usage
 int usage() {
+    version();
     cerr << "Usage:" 
         << "\t\t" << "regtools <command> [options]" << endl;
     cerr << "Command:\t" << "junctions\t\tTools that operate on feature junctions (e.g. exon-exon junctions from RNA-seq)." << endl;
@@ -54,7 +55,7 @@ int usage() {
 
 //Everything starts here
 int main(int argc, char* argv[]) {
-    version();
+    //version();
     if(argc > 1) {
         string subcmd(argv[1]);
         if(subcmd == "junctions") {

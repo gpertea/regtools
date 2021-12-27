@@ -36,7 +36,7 @@ using namespace std;
 int junctions_usage(ostream &out = cout) {
     out << "Usage:\t\t" << "regtools junctions <command> [options]" << endl;
     out << "Command:\t" << "extract\t\tIdentify exon-exon junctions from alignments." << endl;
-    out << "\t\tannotate\tAnnotate the junctions." << endl;
+    out << "\t\tannotate\tAnnotate exon-exon junctions." << endl;
     out << endl;
     return 0;
 }

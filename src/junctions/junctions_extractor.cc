@@ -40,8 +40,9 @@ using namespace std;
 int JunctionsExtractor::parse_options(int argc, char *argv[]) {
     optind = 1; //Reset before parsing again.
     int c;
+    bool verbose=false;
     stringstream help_ss;
-    while((c = getopt(argc, argv, "ha:m:M:o:r:t:s:")) != -1) {
+    while((c = getopt(argc, argv, "Vha:m:M:o:c:r:t:s:")) != -1) {
         switch(c) {
             case 'a':
                 min_anchor_length_ = atoi(optarg);
@@ -55,12 +56,16 @@ int JunctionsExtractor::parse_options(int argc, char *argv[]) {
             case 'o':
                 output_file_ = string(optarg);
                 break;
+            case 'c':
+                output_counts_ = string(optarg);
+                break;
             case 'r':
                 region_ = string(optarg);
                 break;
             case 't':
                 strand_tag_ = string(optarg);
                 break;
+            case 'V': verbose=true;break;
             case 'h':
                 usage(help_ss);
                 throw common::cmdline_help_exception(help_ss.str());
@@ -84,12 +89,14 @@ int JunctionsExtractor::parse_options(int argc, char *argv[]) {
         usage();
         throw runtime_error("Please supply strand specificity with '-s' option!\n\n");
     }
-    cerr << "Minimum junction anchor length: " << min_anchor_length_ << endl;
-    cerr << "Minimum intron length: " << min_intron_length_ << endl;
-    cerr << "Maximum intron length: " << max_intron_length_ << endl;
-    cerr << "Alignment: " << bam_ << endl;
-    cerr << "Output file: " << output_file_ << endl;
-    cerr << endl;
+    if (verbose) {
+        cerr << "Minimum junction anchor length: " << min_anchor_length_ << endl;
+        cerr << "Minimum intron length: " << min_intron_length_ << endl;
+        cerr << "Maximum intron length: " << max_intron_length_ << endl;
+        cerr << "Alignment: " << bam_ << endl;
+        cerr << "Output file: " << output_file_ << endl;
+        cerr << endl;
+    }
     return 0;
 }
 
@@ -102,7 +109,8 @@ int JunctionsExtractor::usage(ostream& out) {
         << "\t\t\t " << "anchor length on both sides are reported. [8]" << endl;
     out << "\t\t" << "-m INT\tMinimum intron length. [70]" << endl;
     out << "\t\t" << "-M INT\tMaximum intron length. [500000]" << endl;
-    out << "\t\t" << "-o FILE\tThe file to write output to. [STDOUT]" << endl;
+    out << "\t\t" << "-o FILE\tThe BED output file name. [STDOUT]" << endl;
+    out << "\t\t" << "-c FILE\tThe counts output file name [none]" << endl;
     out << "\t\t" << "-r STR\tThe region to identify junctions \n"
         << "\t\t\t " << "in \"chr:start-end\" format. Entire BAM by default." << endl;
     out << "\t\t" << "-s INT\tStrand specificity of RNA library preparation \n"
@@ -201,11 +209,14 @@ vector<Junction> JunctionsExtractor::get_all_junctions() {
     return junctions_vector_;
 }
 
-//Print all the junctions - this function needs work
+//Print all the junctions 
 void JunctionsExtractor::print_all_junctions(ostream& out) {
-    ofstream fout;
+    ofstream fout, fcout;
     if(output_file_ != string("NA")) {
         fout.open(output_file_.c_str());
+    }
+    if(!output_counts_.empty()) {
+        fcout.open(output_counts_.c_str());
     }
     //Sort junctions by position
     if(!junctions_sorted_) {
@@ -217,14 +228,13 @@ void JunctionsExtractor::print_all_junctions(ostream& out) {
         it != junctions_vector_.end(); it++) {
         Junction j1 = *it;
         if(j1.has_left_min_anchor && j1.has_right_min_anchor) {
-            if(fout.is_open())
-                j1.print(fout);
-            else
-                j1.print(out);
+            if(fout.is_open())  j1.print(fout);
+            else j1.print(out);
+            if (fcout.is_open()) j1.printCount(fcout);
         }
     }
-    if(fout.is_open())
-        fout.close();
+    if(fout.is_open()) fout.close();
+    if(fcout.is_open()) fcout.close();
 }
 
 //Get the strand from the XS aux tag
@@ -389,31 +399,44 @@ int JunctionsExtractor::identify_junctions_from_BAM() {
         if(in == NULL) {
             throw runtime_error("Unable to open BAM/SAM file.\n\n");
         }
-        //Load the index
-        hts_idx_t *idx = sam_index_load(in, bam_.c_str());
-        if(idx == NULL) {
-            throw runtime_error("Unable to open BAM/SAM index."
-                                " Make sure alignments are indexed\n\n");
-        }
         //Get the header
         bam_hdr_t *header = sam_hdr_read(in);
-        //Initialize iterator
-        hts_itr_t *iter = NULL;
-        //Move the iterator to the region we are interested in
-        iter  = sam_itr_querys(idx, header, region_.c_str());
-        if(header == NULL || iter == NULL) {
-            sam_close(in);
-            throw runtime_error("Unable to iterate to region within BAM.\n\n");
+        if(header == NULL) {
+             sam_close(in);
+             throw runtime_error("Unable to get header for the alignment file.\n\n");
         }
-        //Initiate the alignment record
+        //Initiate alignment record
         bam1_t *aln = bam_init1();
-        while(sam_itr_next(in, iter, aln) >= 0) {
-            parse_alignment_into_junctions(header, aln);
+
+        if (region_.empty() || region_==".") {
+            int r;
+            while ( (r=sam_read1(in, header, aln))>=0 ) {
+                parse_alignment_into_junctions(header, aln);
+            }
         }
-        hts_itr_destroy(iter);
-        hts_idx_destroy(idx);
+        else {            
+            //Load the index
+            hts_idx_t *idx = sam_index_load(in, bam_.c_str());
+            if(idx == NULL) {
+                throw runtime_error("Unable to open BAM/SAM index."
+                                    " Make sure alignments are indexed\n\n");
+            }
+            //Initialize iterator
+            hts_itr_t *iter = NULL;
+            //Move the iterator to the region we are interested in
+            iter  = sam_itr_querys(idx, header, region_.c_str());
+            if(header == NULL || iter == NULL) {
+                sam_close(in);
+                throw runtime_error("Unable to iterate to region within BAM.\n\n");
+            }
+            while(sam_itr_next(in, iter, aln) >= 0) {
+                parse_alignment_into_junctions(header, aln);
+            }
+            hts_itr_destroy(iter);
+            hts_idx_destroy(idx);
+        }
         bam_destroy1(aln);
-        bam_hdr_destroy(header);
+        bam_hdr_destroy(header);        
         sam_close(in);
     }
     return 0;
